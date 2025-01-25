@@ -5,6 +5,16 @@ from flask import Flask, request, jsonify
 import logging
 import subprocess
 import json
+from book_meeting import extract_meeting_details, schedule_meeting
+
+def install_requirements():
+    try:
+        subprocess.check_call(["pip", "install", "-r", "requirements.txt"])
+    except Exception as e:
+        print(f"Error installing requirements: {e}")
+        exit(1)
+
+install_requirements()
 
 load_dotenv()
 WEBEX_BOT_TOKEN = os.getenv("WEBEX_BOT_TOKEN")
@@ -45,13 +55,35 @@ def process_message(message_id):
         response = requests.get(f"{WEBEX_API_BASE}/messages/{message_id}", headers=HEADERS)
         message = response.json()
         logging.debug(f"Retrieved message: {message}")
-        user_message = message.get("text").strip().lower()
+        user_message = message.get("text").strip()
         logging.debug(f"User message: {user_message}")
-        if user_message == "hello":
+
+        if "schedule a meeting" in user_message.lower():
+            logging.debug("Scheduling meeting detected")
+            meeting_details = extract_meeting_details(user_message)
+            logging.debug(f"Extracted meeting details: {meeting_details}")
+
+            if meeting_details:
+                # Parse meeting details (assumes meeting_details is structured JSON or similar format)
+                title = meeting_details.get("title", "Untitled Meeting")
+                start_time = meeting_details.get("start_time")
+                attendees = meeting_details.get("attendees", [])
+
+                if start_time and attendees:
+                    schedule_response = schedule_meeting(title, start_time, attendees)
+                    send_message(
+                        message["roomId"],
+                        f"Meeting scheduled: {schedule_response.get('title')} at {schedule_response.get('start')}"
+                    )
+                else:
+                    send_message(message["roomId"], "Sorry, I couldn't extract complete meeting details.")
+            else:
+                send_message(message["roomId"], "I couldn't understand the meeting details. Could you rephrase?")
+        elif user_message.lower() == "hello":
             logging.debug("Matched 'hello', sending response")
             send_message(message["roomId"], "Hello there! I'm Donna, your virtual secretary. How can I assist you today?")
         else:
-            logging.debug("Message did not match 'hello'")
+            logging.debug("Message did not match any command")
     except Exception as e:
         logging.error(f"Error processing message: {e}")
 
@@ -91,5 +123,3 @@ def create_webhook():
 if __name__ == "__main__":
     create_webhook()
     app.run(port=5000, debug=True)
-
-    
